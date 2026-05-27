@@ -51,14 +51,14 @@ jobs:
 
           echo "Proyecto encontrado: $PROJECT_ID"
 
-#           # Obtener la primera columna del proyecto
-#           COLUMN_ID=$(gh api projects/$PROJECT_ID/columns \
-#             -H "Accept: application/vnd.github.inertia+json" \
-#             --jq '.[0].id')
-#
-#           echo "Columna destino: $COLUMN_ID"
-#
-#           echo "Procesando vulnerabilidades…"
+          # Obtener la primera columna del proyecto
+          COLUMN_ID=$(gh api projects/$PROJECT_ID/columns \
+            -H "Accept: application/vnd.github.inertia+json" \
+            --jq '.[0].id')
+
+          echo "Columna destino: $COLUMN_ID"
+
+          echo "Procesando vulnerabilidades…"
 #
 #           jq -c '.vulnerabilities[] | select(.severity=="high" or .severity=="critical")' scout-report.json | while read vuln; do
 #             CVE=$(echo "$vuln" | jq -r '.id')
