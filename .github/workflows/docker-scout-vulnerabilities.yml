@@ -39,8 +39,9 @@ jobs:
         run: |
           echo "Buscando ID del proyecto 'Main'…"
 
-          PROJECT_ID=$(gh api repos/$REPO/projects \
-            -H "Accept: application/vnd.github.inertia+json" \
+          PROJECT_ID=$(gh api /orgs/penpot/projectsV2 \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
             --jq '.[] | select(.name=="Main") | .id')
 
           if [ -z "$PROJECT_ID" ]; then
