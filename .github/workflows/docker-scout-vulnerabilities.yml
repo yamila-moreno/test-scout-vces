@@ -1,0 +1,19 @@
+name: Docker Scout Vulnerability Issues
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scout-vulnerabilities:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Analyze image vulnerabilities with Docker Scout
+        id: docker-scout
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: penpotapp/frontend:latest
+          sarif-file: scout-cves.sarif
+          summary: true
+          write-comment: true
