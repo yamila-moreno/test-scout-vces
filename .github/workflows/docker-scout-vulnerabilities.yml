@@ -85,7 +85,7 @@ jobs:
                 ? vulnerability.locations.map((location) => `- ${location}`).join('\n')
                 : '- Not provided';
 
-              const body = [
+              const bodyLines = [
                 `Docker Scout reported a vulnerability for \`${image}\`.`,
                 '',
                 `- **Vulnerability:** ${vulnerability.id}`,
@@ -95,10 +95,14 @@ jobs:
                 vulnerability.description,
                 '',
                 '**Locations**',
-                locationText,
-                '',
-                vulnerability.helpUri ? `**Reference:** ${vulnerability.helpUri}` : ''
-              ].filter(Boolean).join('\n');
+                locationText
+              ];
+
+              if (vulnerability.helpUri) {
+                bodyLines.push('', `**Reference:** ${vulnerability.helpUri}`);
+              }
+
+              const body = bodyLines.join('\n');
 
               await github.rest.issues.create({
                 owner,
