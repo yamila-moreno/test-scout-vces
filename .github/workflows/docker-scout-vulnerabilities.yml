@@ -8,12 +8,97 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Analyze image vulnerabilities with Docker Scout
-        id: docker-scout
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Docker Scout CVEs
         uses: docker/scout-action@v1
         with:
           command: cves
-          image: penpotapp/frontend:latest
-          sarif-file: scout-cves.sarif
-          summary: true
-          write-comment: true
+          image: ${{ secrets.IMAGE_NAME }}
+          format: sbom
+          only-fixed: true
+          ignore-base: true
+          output: scout-report.json
+
+      - name: Create issues per CVE and add to project
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Buscando ID del proyecto 'Main'…"
+
+          PROJECT_ID=$(gh api repos/$REPO/projects \
+            -H "Accept: application/vnd.github.inertia+json" \
+            --jq '.[] | select(.name=="Main") | .id')
+
+          if [ -z "$PROJECT_ID" ]; then
+            echo "❌ No se encontró el proyecto 'Main'"
+            exit 1
+          fi
+
+          echo "Proyecto encontrado: $PROJECT_ID"
+
+          # Obtener la primera columna del proyecto
+          COLUMN_ID=$(gh api projects/$PROJECT_ID/columns \
+            -H "Accept: application/vnd.github.inertia+json" \
+            --jq '.[0].id')
+
+          echo "Columna destino: $COLUMN_ID"
+
+          echo "Procesando vulnerabilidades…"
+
+          jq -c '.vulnerabilities[] | select(.severity=="high" or .severity=="critical")' scout-report.json | while read vuln; do
+            CVE=$(echo "$vuln" | jq -r '.id')
+            SEVERITY=$(echo "$vuln" | jq -r '.severity')
+            DESC=$(echo "$vuln" | jq -r '.description // "Sin descripción"')
+            PACKAGE=$(echo "$vuln" | jq -r '.package // "desconocido"')
+            VERSION=$(echo "$vuln" | jq -r '.version // "desconocida"')
+
+            echo "Procesando $CVE…"
+
+            # Comprobar si ya existe issue con ese CVE como título
+            EXISTS=$(gh issue list --search "$CVE" --state open --json title | jq 'length')
+
+            if [ "$EXISTS" -gt 0 ]; then
+              echo "- Ya existe issue para $CVE, se omite."
+              continue
+            fi
+
+            BODY=$(cat <<EOF
+**CVE:** $CVE
+**Severidad:** $SEVERITY
+**Paquete:** $PACKAGE
+**Versión:** $VERSION
+
+**Descripción:**
+$DESC
+
+_Informe generado automáticamente por Docker Scout._
+EOF
+)
+
+            # Crear issue
+            ISSUE_NUMBER=$(gh issue create \
+              --title "$CVE" \
+              --body "$BODY" \
+              --json number \
+              --jq '.number')
+
+            echo "- Issue creada: #$ISSUE_NUMBER"
+
+            # Añadir issue al proyecto
+            gh api projects/columns/$COLUMN_ID/cards \
+              -H "Accept: application/vnd.github.inertia+json" \
+              -f content_type=Issue \
+              -f content_id=$ISSUE_NUMBER
+
+            echo "- Issue #$ISSUE_NUMBER añadida al proyecto 'Main'"
+          done
