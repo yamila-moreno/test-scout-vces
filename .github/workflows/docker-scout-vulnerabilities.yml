@@ -1,0 +1,111 @@
+name: Docker Scout Vulnerability Issues
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  scout-vulnerabilities:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Analyze image vulnerabilities with Docker Scout
+        id: docker-scout
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: penpotapp/frontend:latest
+          sarif-file: scout-cves.sarif
+          summary: true
+          write-comment: false
+
+      - name: Create one issue per vulnerability
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const image = 'penpotapp/frontend:latest';
+
+            const sarif = JSON.parse(fs.readFileSync('scout-cves.sarif', 'utf8'));
+            const runs = sarif.runs || [];
+            const vulnerabilities = new Map();
+
+            for (const run of runs) {
+              const rulesById = new Map((run.tool?.driver?.rules || []).map((rule) => [rule.id, rule]));
+
+              for (const result of run.results || []) {
+                const id = result.ruleId;
+                if (!id || vulnerabilities.has(id)) {
+                  continue;
+                }
+
+                const rule = rulesById.get(id) || {};
+                const locations = (result.locations || [])
+                  .map((location) => location.physicalLocation?.artifactLocation?.uri)
+                  .filter(Boolean);
+
+                vulnerabilities.set(id, {
+                  id,
+                  description: result.message?.text || 'No description provided.',
+                  severity: result.level || 'unknown',
+                  helpUri: rule.helpUri || '',
+                  locations
+                });
+              }
+            }
+
+            if (vulnerabilities.size === 0) {
+              core.info('No vulnerabilities found.');
+              return;
+            }
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100
+            });
+
+            for (const vulnerability of vulnerabilities.values()) {
+              const title = `[Docker Scout] ${vulnerability.id} in ${image}`;
+              const alreadyOpen = openIssues.some((issue) => issue.title === title);
+              if (alreadyOpen) {
+                core.info(`Issue already open for ${vulnerability.id}`);
+                continue;
+              }
+
+              const locationText = vulnerability.locations.length
+                ? vulnerability.locations.map((location) => `- ${location}`).join('\n')
+                : '- Not provided';
+
+              const body = [
+                `Docker Scout reported a vulnerability for \`${image}\`.`,
+                '',
+                `- **Vulnerability:** ${vulnerability.id}`,
+                `- **Severity:** ${vulnerability.severity}`,
+                '',
+                '**Description**',
+                vulnerability.description,
+                '',
+                '**Locations**',
+                locationText,
+                '',
+                vulnerability.helpUri ? `**Reference:** ${vulnerability.helpUri}` : ''
+              ].filter(Boolean).join('\n');
+
+              await github.rest.issues.create({
+                owner,
+                repo,
+                title,
+                body
+              });
+
+              core.info(`Created issue for ${vulnerability.id}`);
+            }
