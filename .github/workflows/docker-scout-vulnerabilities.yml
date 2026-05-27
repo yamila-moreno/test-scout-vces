@@ -3,6 +3,11 @@ name: Docker Scout Vulnerability Issues
 on:
   workflow_dispatch:
 
+permissions:
+  issues: write
+  contents: read
+  projects: write
+
 jobs:
   scout-vulnerabilities:
     runs-on: ubuntu-latest
